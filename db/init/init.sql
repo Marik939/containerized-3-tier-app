@@ -1,0 +1,18 @@
+CREATE DATABASE IF NOT EXISTS appdb;
+
+CREATE USER IF NOT EXISTS 'appuser'@'%' IDENTIFIED BY 'changeme';
+
+GRANT ALL PRIVILEGES ON appdb.* TO 'appuser'@'%';
+
+FLUSH PRIVILEGES;
+
+USE appdb;
+
+CREATE TABLE IF NOT EXISTS page_views (
+    id INT PRIMARY KEY,
+    count INT NOT NULL DEFAULT 0
+);
+
+INSERT INTO page_views (id, count)
+VALUES (1, 0)
+ON DUPLICATE KEY UPDATE id = id;

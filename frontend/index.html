@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Containerized LEMP Example</title>
+</head>
+
+<body>
+    <h1>Frontend (Nginx)</h1>
+
+    <p id="msg">Loading...</p>
+    <p id="time">MySQL server time: Loading...</p>
+    <p id="views">Page views: Loading...</p>
+
+    <button id="visitButton">Add visit</button>
+<p>GitHub repository: [your GitHub link]</p>
+<p>The project documentation is available in the repository README.md file</p>
+    <script>
+        function loadData() {
+            fetch('/api')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('msg').innerText = data.message;
+                    document.getElementById('time').innerText =
+                        'MySQL server time: ' + data.server_time;
+                    document.getElementById('views').innerText =
+                        'Page views: ' + data.page_views;
+                })
+                .catch(error => {
+                    document.getElementById('msg').innerText =
+                        'API error: ' + error;
+                });
+        }
+
+        document.getElementById('visitButton').addEventListener('click', () => {
+            fetch('/api/visit', {
+                method: 'POST'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('views').innerText =
+                        'Page views: ' + data.page_views;
+                })
+                .catch(error => {
+                    document.getElementById('views').innerText =
+                        'API error: ' + error;
+                });
+        });
+
+        loadData();
+    </script>
+</body>
+</html>
