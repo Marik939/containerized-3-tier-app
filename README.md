@@ -103,6 +103,7 @@ containerized-3-tier-app/
 ├── docker-compose.prod.yml
 ├── docker-compose.yml
 └── README.md
+```
 
 Main directories
 backend/ contains the Flask application and backend Dockerfile.
