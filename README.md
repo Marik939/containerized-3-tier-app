@@ -59,6 +59,7 @@ The backend and database use internal OpenShift Services and are not directly ex
 
   ## 3. Project Structure
 
+```text
 containerized-3-tier-app/
 │
 ├── backend/
@@ -84,9 +85,20 @@ containerized-3-tier-app/
 │   ├── frontend-route.yaml
 │   ├── mysql-deployment.yaml
 │   ├── mysql-pvc.yaml
-│   ├── mysql-service.yaml
-│   └── secret.yaml
+│   └── mysql-service.yaml
 │
+├── screenshots/
+│   ├── application-update.jpg
+│   ├── final-state.jpg
+│   ├── local-app.png
+│   ├── network-test.jpg
+│   ├── persistence-test.jpg
+│   ├── pod-recovery.png
+│   ├── read-write-test.png
+│   ├── scale-test.png
+│   └── wget.jpg
+│
+├── .gitignore
 ├── docker-compose.dev.yml
 ├── docker-compose.prod.yml
 ├── docker-compose.yml
