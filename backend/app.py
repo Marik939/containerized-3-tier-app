@@ -1,8 +1,34 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import os
 import mysql.connector
 import redis
+import logging
+import time
 app = Flask(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s'
+)
+
+logger = logging.getLogger(__name__)
+@app.before_request
+def start_timer():
+    request.start_time = time.perf_counter()
+
+
+@app.after_request
+def log_request(response):
+    duration_ms = (time.perf_counter() - request.start_time) * 1000
+
+    logger.info(
+        'request method=%s path=%s status=%s duration_ms=%.2f',
+        request.method,
+        request.path,
+        response.status_code,
+        duration_ms
+    )
+
+    return response
 
 DB_HOST = os.getenv('DB_HOST', 'db')
 DB_USER = os.getenv('DB_USER', 'appuser')

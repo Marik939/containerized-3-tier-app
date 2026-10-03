@@ -17,6 +17,19 @@ spec:
           image: maryna999/lemp-backend:1.0.2
           ports:
             - containerPort: 8000
+
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            
           env:
             - name: DB_HOST
               valueFrom:
