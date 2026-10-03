@@ -443,3 +443,252 @@ For example, if a Finnish open-data portal provides public transport data in JSO
 So, the format matters because it affects how easily the data can be processed, searched, combined with other data and reused in applications.
 
 Sources: avoindata.fi / European Data Portal.
+
+# Week 6 – CI/CD and Observability
+## 1. CI/CD Pipeline
+A GitHub Actions workflow was created at:
+.github/workflows/deploy-backend.yml
+The workflow runs on every push to main. It:
+1. Checks out the repository.
+2. Logs in to Docker Hub using GitHub repository secrets.
+3. Builds the backend Docker image.
+4. Pushes the image to Docker Hub using the Git commit SHA as the image tag.
+5. Installs the OpenShift CLI.
+6. Logs in to Rahti using repository secrets.
+7. Updates the backend Deployment with the new image.
+8. Waits for the rollout to complete.
+
+## Workflow YAML
+```yaml
+name: Build and Deploy Backend
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./backend/Dockerfile
+          push: true
+          tags: maryna999/lemp-backend:${{ github.sha }}
+
+      - name: Install OpenShift CLI
+        uses: redhat-actions/oc-installer@v1
+
+      - name: Log in to Rahti
+        run: |
+          oc login \
+            --token="${{ secrets.RAHTI_TOKEN }}" \
+            --server="${{ secrets.RAHTI_SERVER }}"
+
+      - name: Deploy backend
+        run: |
+          oc set image deployment/backend \
+            backend=maryna999/lemp-backend:${{ github.sha }}
+
+      - name: Wait for rollout
+        run: |
+          oc rollout status deployment/backend
+```
+## The workflow uses these GitHub repository secrets:
+1. DOCKERHUB_USERNAME
+2. DOCKERHUB_TOKEN
+3. RAHTI_TOKEN
+4. RAHTI_SERVER
+Secret values are not stored in the repository.
+
+## Successful GitHub Actions run
+![successful deployment](screenshots\CI-and-CD-pipeline-run.jpg)
+The workflow completed successfully with the build-and-deploy job shown in green.
+
+## 2. Evidence That a Commit Triggered a New Deployment
+1. The observability changes were committed with:
+```yaml
+6bdcd9ceaad22e701f2fbef400dc5c167276874b
+```
+Add observability probes and logging
+
+2. The deployed backend image was verified with:
+```yaml
+oc get deployment backend -o jsonpath="{.spec.template.spec.containers[0].image}"
+```
+Result:
+```yaml
+maryna999/lemp-backend:6bdcd9ceaad22e701f2fbef400dc5c167276874b
+```
+This shows that the Docker image running in Rahti is tagged with the Git commit SHA.
+
+3. A new backend pod was also created after the deployment:
+```yaml
+backend-fdc55f497-zk94t   1/1   Running   0   68s
+```
+![Docker image and Rahti deployment.](screenshots\backend-pod-recreation.jpg)
+![Backend uses docker](screenshots\backend-use-docker.jpg)
+
+## 3. Liveness and Readiness Probes
+The backend Deployment was configured with both liveness and readiness probes.
+
+1. Probe configuration
+```yaml
+livenessProbe:
+  tcpSocket:
+    port: 8000
+  initialDelaySeconds: 10
+  periodSeconds: 15
+
+readinessProbe:
+  tcpSocket:
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  ```
+The live Deployment was verified with oc describe deployment backend:
+```yaml
+Liveness:   tcp-socket :8000 delay=10s timeout=1s period=15s #success=1 #failure=3
+Readiness:  tcp-socket :8000 delay=5s timeout=1s period=10s #success=1 #failure=3
+```
+2. Readiness failure test
+To test the behaviour, the readiness probe was temporarily changed to check TCP port 9999, where the backend was not listening.
+The affected pod changed to:
+```yaml
+backend-6997c7b6c7-x729q   0/1   Running   0
+```
+The container remained running and was not restarted.
+
+At the same time, the Service endpoints showed only the healthy pod:
+```yaml
+backend   10.131.7.142:8000
+```
+The failed pod had IP 10.129.6.21, which was not present in the Service endpoints.
+ 
+This demonstrates that a failed readiness probe removes the affected pod from the Service endpoints 
+while the container itself can continue running.
+
+The readiness probe was then restored to TCP port 8000. The backend returned to:
+```yaml
+backend-fdc55f497-zp48z   1/1   Running   0
+```
+![Liveness and readiness probes ](screenshots\liveness-and-readness.jpg)
+
+## 4. Application Logging
+Structured request logging was added to the Flask backend.
+
+The application records:
+- HTTP method
+- request path
+- response status
+- request duration in milliseconds
+
+Example:
+```yaml
+2026-10-03 14:17:01,844 INFO request method=GET path=/api/health status=200 duration_ms=0.22
+``` 
+The log was retrieved from the running Rahti pod using:
+```yaml
+oc logs backend-fdc55f497-zk94t --tail=20
+```
+The /api/health endpoint was tested through the backend and returned:
+```yaml
+{"status":"ok"}
+```
+The corresponding request was then visible in the container logs.
+![oc logs](screenshots\oc-logs.jpg)
+
+## 6. Problems Encountered and Solutions
+1. Rahti authentication
+The first GitHub Actions run failed during the Rahti login because the stored token was invalid or expired.
+
+Solution: a fresh Rahti token was obtained and the RAHTI_TOKEN GitHub repository secret was updated. The workflow then completed successfully.
+
+2. OpenShift CLI was not available as oc
+Running oc directly in PowerShell initially resulted in the command not being found.
+
+Solution: the existing oc.exe installation was used through its full path:
+```yaml
+C:\Users\marin\OneDrive - University of Oulu and Oamk\OpenShift\oc.exe
+```
+
+3. Probe command syntax
+The initial oc set probe attempt used --tcp, which was not accepted by this OpenShift CLI version.
+
+Solution: the correct option was:
+```yaml
+--open-tcp=8000
+```
+
+4. Docker build context
+The backend Dockerfile uses files under the backend/ directory. Therefore the workflow builds with the repository root as the Docker build context:
+```yaml
+context: .
+file: ./backend/Dockerfile
+```
+
+This allowed the Dockerfile to access backend/requirements.txt and the backend source files.
+
+5. Readiness test with multiple replicas/pods
+During the readiness test, the Service still had an endpoint because another backend pod was healthy.
+
+Solution: the pod IPs were compared with the Service endpoint list. The failed pod's IP was absent from the endpoints, while the healthy pod remained available. This demonstrated the intended readiness behaviour without incorrectly claiming that the whole Service became unavailable.
+![probe change](screenshots\probe-change.jpg)
+
+# Answers to questions week 6 
+
+## Explain the difference between Continuous Integration, Continuous Delivery and Continuous Deployment
+Continuous Integration (CI) means that developers regularly push their code to a shared repository. The code is automatically built and tested to find problems early.
+
+Continuous Delivery means that the application is not only tested, but also automatically prepared for release. The application can be deployed at any time, but the final deployment to production usually requires a manual decision.
+
+Continuous Deployment goes one step further. If the code passes all automated tests, it is automatically deployed to production without a manual step.
+
+So, the main difference is how far the automation goes. CI focuses on integrating and testing code, Continuous Delivery prepares the application for release, and Continuous Deployment automatically releases it.
+
+## What are the three pillars of observability (metrics, logs, traces)? Give an example of a question each one is best suited to answer
+They help developers understand what is happening inside an application.
+
+Metrics are numerical values that show the overall state of the system. For example, CPU usage, memory usage or the number of requests. A question for metrics could be: “Is the server using too much CPU?”
+
+Logs are records of events that happen inside the application. They can contain error messages or information about what the application is doing. A question for logs could be: “What error happened when the application crashed?”
+
+Traces show the path of a request through different services or parts of an application. A question for traces could be: “Which part of the application is making this request slow?”
+
+In simple terms, metrics show what is happening, logs help explain what happened, and traces show where a request went and where a problem occurred.
+
+## Explain the difference between a liveness probe and a readiness probe in Kubernetes/Rahti. What happens when each one fails?
+A liveness probe checks if the application is still running correctly. If the liveness probe fails repeatedly, Kubernetes can assume that the container is not working properly and restart the container.
+
+A readiness probe checks if the application is ready to receive traffic. If the readiness probe fails, Kubernetes does not necessarily restart the container. Instead, the pod is removed from the Service endpoints, so it stops receiving new traffic.
+
+For example, if the application is still starting, the readiness probe can fail until it is ready. If the application gets stuck and the liveness probe fails, Kubernetes can restart it.
+
+So, the simple difference is:
+- Liveness = “Is the application still alive?”
+- Readiness = “Is the application ready to receive requests?”
+
+## Why should secrets (registry tokens, cluster login tokens) never be hard-coded into a CI/CD pipeline file? How does GitHub Actions handle this instead?
+
+Secrets such as registry tokens, passwords or cluster login tokens should not be written directly into a CI/CD pipeline file because the file can be stored in a Git repository and other people could potentially see the secrets. Even if the repository is private, putting secrets directly in the code is not a good security practice.
+
+GitHub Actions provides Secrets for this purpose. The secret values can be stored in the GitHub repository or organization settings and then used inside the workflow when the pipeline runs.
+
+The real value is stored separately and is not written directly in the pipeline code.
+
+This makes the CI/CD pipeline safer because sensitive information is separated from the source code.
